@@ -57,7 +57,8 @@ class AuthController extends Controller
             'message' => 'Login successful',
             'access_token' => $token,
             'token_type' => 'Bearer',
-            'role' => $user->role // Assuming `role` is a column in your users table
+            'role' => $user->role, // Assuming `role` is a column in your users table
+            'name' => $user->name,
         ], 200);
     }
 
@@ -71,6 +72,95 @@ class AuthController extends Controller
             'message' => 'Successfully logged out'
         ], 200);
     }
+
+    //for mobile APIs
+
+        public function sendResetOtp(Request $request)
+    {
+        $request->validate(['email' => 'required|email|exists:users,email']);
+
+        $otp = rand(100000, 999999);
+        $token = Str::random(60);
+
+        // Store OTP and token in the database
+        DB::table('password_reset_tokens')->updateOrInsert(
+            ['email' => $request->email],
+            [
+                'otp' => $otp,
+                'token' => $token,
+                'created_at' => Carbon::now()
+            ]
+        );
+
+        // Send OTP via email (using Laravel Mail)
+        Mail::raw("Your password reset OTP is: $otp", function ($message) use ($request) {
+            $message->to($request->email)
+                ->subject("Password Reset OTP");
+        });
+
+        return response()->json([
+            'message' => 'OTP sent to email.',
+            'token' => $token // Optionally return the token
+        ]);
+    }
+
+    public function verify(Request $request)
+    {
+        $request->validate([
+            'email' => 'required|email|exists:users,email',
+            'otp' => 'required|digits:6',
+            'token' => 'required',
+            
+        ]);
+
+        // Check if OTP and token are valid
+        $reset = DB::table('password_reset_tokens')
+            ->where('email', $request->email)
+            ->where('otp', $request->otp)
+            ->where('token', $request->token)
+            ->first();
+
+        if (!$reset) {
+            return response()->json(['message' => 'Invalid OTP'], 400);
+        }
+
+        return response()->json(['message' => 'otp is verified.',
+            'otp' => $request->otp,
+            'token' => $request->token,]);
+    }
+
+    public function resetPassword(Request $request)
+    {
+        $request->validate([
+            'email' => 'required|email|exists:users,email',
+            'otp' => 'required|digits:6',
+            'token' => 'required',
+            'password' => 'required|min:6|confirmed'
+        ]);
+
+        // Check if OTP and token are valid
+        $reset = DB::table('password_reset_tokens')
+            ->where('email', $request->email)
+            ->where('otp', $request->otp)
+            ->where('token', $request->token)
+            ->first();
+
+        if (!$reset) {
+            return response()->json(['message' => 'Invalid OTP or token'], 400);
+        }
+
+        // Update user's password
+        User::where('email', $request->email)->update([
+            'password' => bcrypt($request->password)
+        ]);
+
+        // Delete reset request after successful password update
+        DB::table('password_reset_tokens')->where('email', $request->email)->delete();
+
+        return response()->json(['message' => 'Password reset successful.']);
+    }
+
+
 }
 
     

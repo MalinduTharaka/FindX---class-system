@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use App\Models\Payment;
 use App\Models\Attendance;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Log;
 
 class PaymentController extends Controller
 {
@@ -90,6 +91,123 @@ public function storePayments(Request $request)
 
     return response()->json(['message' => 'Payments successfully recorded!']);
 }
+
+//for mobile app
+
+public function showRecentPayments(Request $request)
+    {
+        $studentId = $request->input('studentId');
+        $classId = $request->input('classId');
+
+        Log::info('Attempting to retrieve student with ID: ' . $studentId . ' and class ID: ' . $classId);
+
+        // Find the student by ID
+        $student = Student::find($studentId);
+
+        // Check if the student exists
+        if ($student) {
+            Log::info('Student found', ['student' => $student]);
+
+            // Fetch the latest payment record for the student and class
+            $payment = Payment::where('student_id', $studentId)
+                ->where('class_id', $classId) // Filter by class_id
+                ->orderBy('created_at', 'desc') // Sort by the latest payment date
+                ->take(3) // Get the latest 3 records
+                ->get(['created_at', 'paid_amount', 'month']); // Retrieve only the necessary fields
+
+            // If there's payment data, return it
+            if ($payment) {
+                return response()->json([
+                    'success' => true,
+                    'payment' => $payment
+                ], 200);
+            }
+
+            Log::warning('No payment records found for student ID: ' . $studentId . ' in class ID: ' . $classId);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'No payment records found for this student in the specified class.'
+            ], 404);
+        }
+
+        Log::warning('Student not found with ID: ' . $studentId);
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Student not found.'
+        ], 404);
+    }
+
+    public function getPaymentsForStudentInMobile($studentId)
+    {
+        // Get the assignments for the selected student with related class
+        $assigns = AssignToClass::with('class')
+                    ->where('student_id', $studentId)
+                    ->get();
+
+        // Fetch all paid months for the student grouped by class_id
+        $payments = Payment::where('student_id', $studentId)
+                    ->get()
+                    ->groupBy('class_id');
+
+        // Add paid_months to each record in assigns
+        $assigns->transform(function ($item) use ($payments) {
+            // Get the paid months for the current class_id
+            $paidMonths = $payments->has($item->class_id) 
+                ? $payments[$item->class_id]->pluck('month')->map(function ($month) {
+                    return (int) $month; // Cast each month to an integer
+                })->toArray() 
+                : [];
+
+            $item->paid_months = $paidMonths;
+
+            return $item;
+        });
+
+        return response()->json($assigns);
+    }
+
+
+
+    public function storePaymentsMobile(Request $request)
+    {
+        // Log the incoming request data
+        Log::info('storePayments called with data:', ['request' => $request->all()]);
+
+        $payments = $request->input('payments');
+        Log::info('Payments:', ['payments' => $payments]);
+
+        foreach ($payments as $index => $paymentData) {
+            try {
+                // Log each payment data being processed
+                Log::info("Processing payment #{$index}:", ['paymentData' => $paymentData]);
+
+                Payment::create([
+                    'student_id'   => $paymentData['student_id'],
+                    'class_id'     => $paymentData['class_id'],
+                    'month'        => $paymentData['month'],
+                    'total'        => $paymentData['total'],  // Set class_fee dynamically
+                    'paid_amount'  => $paymentData['total'],  // Assuming full payment
+                ]);
+
+                // Log success for the current payment
+                Log::info("Payment #{$index} successfully recorded.");
+            } catch (\Exception $e) {
+                // Log the error if something goes wrong
+                Log::error("Error processing payment #{$index}:", [
+                    'paymentData' => $paymentData,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        // Log the completion of the function
+        Log::info('storePayments completed.');
+
+        return response()->json(['message' => 'Payments successfully recorded!']);
+    }
+
 
     
 }

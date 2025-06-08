@@ -98,4 +98,17 @@ class ClassesController extends Controller
             return response()->json(['success' => false, 'message' => $e->getMessage()]);
         }
     }
+
+    //for mobile APIs
+
+    public function indexApi()
+{
+    $classes = ClassModel::where('status', 'active')->get();
+
+    return response()->json([
+        'status' => 'success',
+        'data' => $classes
+    ]);
+}
+
 }

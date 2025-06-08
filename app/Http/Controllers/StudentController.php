@@ -5,7 +5,11 @@ namespace App\Http\Controllers;
 use App\Models\Student;
 use Illuminate\Http\Request;
 
+use App\Models\Attendance;
+use App\Models\AssignToClass;
+
 use function Laravel\Prompts\error;
+use Illuminate\Support\Facades\Log;
 
 class StudentController extends Controller
 {
@@ -70,5 +74,54 @@ class StudentController extends Controller
         }
         return redirect()->route('student')->with('error', 'Failed to delete student.');
     }
+
+
+    //for mobile APIs
+
+    public function showForMobile($id)
+{
+    Log::info('Attempting to retrieve student with ID: ' . $id);
+
+    // Find the student by ID
+    $student = Student::find($id);
+
+    if ($student) {
+        Log::info('Student found', ['student' => $student]);
+
+        // Fetch the student's registered classes with only 'class_id' and 'name' from the ClassModel
+        $registeredClasses = AssignToClass::where('student_id', $id)
+            ->with(['class' => function($query) {
+                $query->select('id', 'name'); // Select only the class ID and name
+            }])
+            ->get();
+
+        // Map the result to extract only the necessary class data
+        $classes = $registeredClasses->map(function ($assignment) {
+            return [
+                'class_id' => $assignment->class->id,
+                'name' => $assignment->class->name,
+            ];
+        });
+
+        return response()->json([
+            'success' => true,
+            'student' => $student,
+            'registered_classes' => $classes
+        ], 200);
+    }
+
+    Log::warning('Student not found with ID: ' . $id);
+
+    return response()->json([
+        'success' => false,
+        'message' => 'Student not found.'
+    ], 404);
+}
+
+public function indexForMobile()
+{
+    $students = Student::all(); // or with filters like ->select('id', 'name')->get();
+    return response()->json($students);
+}
 
 }
